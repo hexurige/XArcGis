@@ -51,55 +51,107 @@ namespace XArcGis
         private async void ViewpointChangedHandler(object sender, EventArgs args)
         {
 
-                // Get the full path
-            string geoPackagePath = GetOfflinePackagePath(@"OfflinePackage_20200501021332.sqlite");
 
-                // Open the GeoPackage
-            GeoPackage myGeoPackage = await GeoPackage.OpenAsync(geoPackagePath);
+        }
 
-            // Read the feature tables and get the first one
-            FeatureTable geoPackageTable = myGeoPackage.GeoPackageFeatureTables.FirstOrDefault();
-
-            // Make sure a feature table was found in the package
-            if (geoPackageTable == null) { return; }
-
-            // Create a layer to show the feature table
-            FeatureLayer newLayer = new FeatureLayer(geoPackageTable);
-
-
-            var queryPts = new QueryParameters();
-            queryPts.Geometry = MyMapView.VisibleArea;
-            queryPts.WhereClause = @" 1 = 1 ";
-               
-
-            var featureResult = await geoPackageTable.QueryFeaturesAsync(queryPts);
-
-            // Create a new feature collection table from the result features
-            FeatureCollectionTable collectTable = new FeatureCollectionTable(featureResult);
-
-            // Create a feature collection and add the table
+        private async void LoadByFeatureCollectionLayer(GeoPackage myGeoPackage)
+        {
             FeatureCollection featCollection = new FeatureCollection();
-            featCollection.Tables.Add(collectTable);
+            FeatureCollectionLayer layer = new FeatureCollectionLayer(featCollection);
+            if (layer.Layers != null)
+            {
+                layer.Layers.Select(x => x.RenderingMode = FeatureRenderingMode.Dynamic);
+            }
+            MyMapView.Map.OperationalLayers.Add(layer);
 
-            // Create a layer to display the feature collection, add it to the map's operational layers
-            FeatureCollectionLayer featCollectionTable = new FeatureCollectionLayer(featCollection);
 
-            // Add the feature table as a layer to the map (with default symbology)
-            MyMapView.Map.OperationalLayers.Add(featCollectionTable);
-
-            var newVp = new Viewpoint(newLayer.FullExtent);
-            MyMapView.SetViewpoint(newVp);
+            foreach (var tab in myGeoPackage.GeoPackageFeatureTables)// Where(x => x.TableName.Contains("polygon")).ToList();
+            {
+                var queryPts = new QueryParameters();
+                //queryPts.Geometry = MyMapView.VisibleArea;
+                //queryPts.WhereClause = @" 1 = 1 ";
+                var featureResult = await tab.QueryFeaturesAsync(queryPts);
+                FeatureCollectionTable collectTable = new FeatureCollectionTable(featureResult);
+                
+                featCollection.Tables.Add(collectTable);
+            }
 
 
         }
 
+        private async void SetViewpointBasedOnOperationalLayers()
+        {
+            foreach (var l in MyMapView.Map.OperationalLayers)
+            {
+                if (l is FeatureLayer)
+                {
+                    var fl = (FeatureLayer)l;
+                    if (fl.FullExtent != null)
+                    {
+                        await MyMapView.SetViewpointGeometryAsync(fl.FullExtent);
+                        break;
+                    }
+                }
+            }
+        }
+
+        private double ScaleByZoomLevel(int level)
+        {
+            return 591657550.500000 / Math.Pow(2, level - 1);
+        }
+
+        private UniqueValueRenderer GetRenderer()
+        {
+            var renderer = new UniqueValueRenderer();
+            renderer.FieldNames.Add("symbol");
+            renderer.UniqueValues.Add(new UniqueValue("(#0000FF,3,0.5)", "(#0000FF,3,0.5)", new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Yellow, 15), "(#0000FF,3,0.5)"));
+            renderer.UniqueValues.Add(new UniqueValue("(#0000FF,5,0.5)", "(#0000FF,5,0.5)", new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Purple, 15), "(#0000FF,5,0.5)"));
+
+            
+            renderer.DefaultSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Black, 10);
+            renderer.DefaultLabel = "(#00FFFF,15,0.5)";
+            return renderer;
+        }
+
+        private async void LoadByFeatureLayer(GeoPackage myGeoPackage)
+        {
+            // Read the feature tables
+            foreach (var tab in myGeoPackage.GeoPackageFeatureTables)
+            {
+                FeatureLayer l = new FeatureLayer(tab);
+                l.RenderingMode = FeatureRenderingMode.Dynamic;
+                l.MaxScale = ScaleByZoomLevel(23);
+                l.MinScale = ScaleByZoomLevel(15);
+                await l.LoadAsync();
+                if (tab.TableName.Contains("point"))
+                {
+                    l.Renderer = GetRenderer();
+                }
+                
+                
+                //await l.LoadAsync();
+                MyMapView.Map.OperationalLayers.Add(l);
+            }
+            
+        }
+
         private async void InitializeMap()
         {
+
+            string geoPackagePath = GetOfflinePackagePath(@"OfflinePackage_20200505023722.sqlite");
+
+
             try
             {
-                // Create a new map centered on Aurora Colorado
-                MyMapView.Map = new Map(BasemapType.OpenStreetMap, 39.7294, -104.8319, 9);
+                MyMapView.Map = new Map(BasemapType.OpenStreetMap, 0, 0, 10);
                 MyMapView.ViewpointChanged += ViewpointChangedHandler;
+
+                // Open the GeoPackage
+                GeoPackage myGeoPackage = await GeoPackage.OpenAsync(geoPackagePath);
+                //LoadByFeatureCollectionLayer(myGeoPackage);
+                LoadByFeatureLayer(myGeoPackage);
+                //SetViewpointBasedOnOperationalLayers();
+
             }
             catch (Exception e)
             {
