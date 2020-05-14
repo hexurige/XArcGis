@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Xamarin.Forms;
 using Esri.ArcGISRuntime.Portal;
 using System.IO;
+using Esri.ArcGISRuntime.Xamarin.Forms;
 
 namespace XArcGis
 {
@@ -20,6 +21,8 @@ namespace XArcGis
     [DesignTimeVisible(false)]
     public partial class MainPage : ContentPage
     {
+        private GeoPackage MyGeoPackage { get; set; }
+
         public MainPage()
         {
             InitializeComponent();
@@ -29,32 +32,47 @@ namespace XArcGis
 
         internal static string GetOfflinePackagePath(string name)
         {
-            return Path.Combine(GetOfflinePackageFolder(), name);
+            return Path.Combine(App.GetOfflinePackageFolder(), name);
         }
 
-        internal static string GetOfflinePackageFolder()
-        {
-#if NETFX_CORE
-            string appDataFolder  = Windows.Storage.ApplicationData.Current.LocalFolder.Path;
-#elif XAMARIN
-            string appDataFolder = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-#else
-            string appDataFolder = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-#endif
-            string sampleDataFolder = Path.Combine(appDataFolder, "OfflinePackages");
-
-            if (!Directory.Exists(sampleDataFolder)) { Directory.CreateDirectory(sampleDataFolder); }
-
-            return sampleDataFolder;
-        }
-
-        private async void ViewpointChangedHandler(object sender, EventArgs args)
+        private async void ViewpointChangedHandler(object sender, EventArgs e)
         {
 
 
         }
 
-        private async void LoadByFeatureCollectionLayer(GeoPackage myGeoPackage)
+        private async void GeoViewTappedHandler(object sender, GeoViewInputEventArgs e)
+        {
+            // get the tap location in screen units
+
+            var pixelTolerance = 50;
+            var returnPopupsOnly = false;
+            var maxLayerResults = 5;
+
+            // identify all layers in the MapView, passing the tap point, tolerance, types to return, and max results
+            IReadOnlyList<IdentifyLayerResult> idLayerResults = await MyMapView.IdentifyLayersAsync(e.Position, pixelTolerance, returnPopupsOnly, maxLayerResults);
+
+            // iterate the results for each layer
+            foreach (IdentifyLayerResult idResults in idLayerResults)
+            {
+                // get the layer identified and cast it to FeatureLayer
+                FeatureLayer idLayer = idResults.LayerContent as FeatureLayer;
+
+                // iterate each identified GeoElement in the results for this layer
+                foreach (GeoElement idElement in idResults.GeoElements)
+                {
+                    // cast the result GeoElement to Feature
+                    Feature idFeature = idElement as Feature;
+                   
+                    // select this feature in the feature layer
+                    idLayer.SelectFeature(idFeature);
+                }
+
+                
+            }
+        }
+
+        private async void LoadByFeatureCollectionLayer()
         {
             FeatureCollection featCollection = new FeatureCollection();
             FeatureCollectionLayer layer = new FeatureCollectionLayer(featCollection);
@@ -65,9 +83,10 @@ namespace XArcGis
             MyMapView.Map.OperationalLayers.Add(layer);
 
 
-            foreach (var tab in myGeoPackage.GeoPackageFeatureTables)// Where(x => x.TableName.Contains("polygon")).ToList();
+            foreach (var tab in MyGeoPackage.GeoPackageFeatureTables)// Where(x => x.TableName.Contains("polygon")).ToList();
             {
                 var queryPts = new QueryParameters();
+                
                 //queryPts.Geometry = MyMapView.VisibleArea;
                 //queryPts.WhereClause = @" 1 = 1 ";
                 var featureResult = await tab.QueryFeaturesAsync(queryPts);
@@ -76,7 +95,7 @@ namespace XArcGis
                 featCollection.Tables.Add(collectTable);
             }
 
-
+            
         }
 
         private async void SetViewpointBasedOnOperationalLayers()
@@ -103,9 +122,11 @@ namespace XArcGis
         private UniqueValueRenderer GetRenderer()
         {
             var renderer = new UniqueValueRenderer();
+            var yellowMarker = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.FromArgb(128, 0, 0, 255), 3);
+            var purpleMarker = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Purple, 15);
             renderer.FieldNames.Add("symbol");
-            renderer.UniqueValues.Add(new UniqueValue("(#0000FF,3,0.5)", "(#0000FF,3,0.5)", new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Yellow, 15), "(#0000FF,3,0.5)"));
-            renderer.UniqueValues.Add(new UniqueValue("(#0000FF,5,0.5)", "(#0000FF,5,0.5)", new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Purple, 15), "(#0000FF,5,0.5)"));
+            renderer.UniqueValues.Add(new UniqueValue("", "", yellowMarker, "(#0000FF,3,0.5)"));
+            renderer.UniqueValues.Add(new UniqueValue("", "", purpleMarker, "(#0000FF,5,0.5)"));
 
             
             renderer.DefaultSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.Black, 10);
@@ -113,15 +134,16 @@ namespace XArcGis
             return renderer;
         }
 
-        private async void LoadByFeatureLayer(GeoPackage myGeoPackage)
+        private async void LoadByFeatureLayer()
         {
             // Read the feature tables
-            foreach (var tab in myGeoPackage.GeoPackageFeatureTables)
+            foreach (var tab in MyGeoPackage.GeoPackageFeatureTables)
             {
                 FeatureLayer l = new FeatureLayer(tab);
                 l.RenderingMode = FeatureRenderingMode.Dynamic;
                 l.MaxScale = ScaleByZoomLevel(23);
                 l.MinScale = ScaleByZoomLevel(15);
+                
                 await l.LoadAsync();
                 if (tab.TableName.Contains("point"))
                 {
@@ -138,18 +160,32 @@ namespace XArcGis
         private async void InitializeMap()
         {
 
-            string geoPackagePath = GetOfflinePackagePath(@"OfflinePackage_20200505023722.sqlite");
-
+            string geoPackagePath = GetOfflinePackagePath(@"Full_20200513043139.gpkg");
 
             try
             {
-                MyMapView.Map = new Map(BasemapType.OpenStreetMap, 0, 0, 10);
+                //MyMapView.Map = new Map(BasemapType.OpenStreetMap, 0, 0, 10);
+                var tileInfo = FGTiltInfoFactory.GetOpenStreetMapTileInfo();
+
+                var center = new MapPoint(12886578.9273218, -3753475.38812722, new SpatialReference(3857));
+                var extend = new Envelope(center, 100000000.0, 100000000.0);
+
+                var aerial = new FGBaseMapTiledLayer(
+                    tileInfo,
+                    extend
+                    );
+
+                var basemap = new Basemap(aerial);
+                MyMapView.Map = new Map(basemap);
+                await MyMapView.SetViewpointCenterAsync(center, ScaleByZoomLevel(16));
+
                 MyMapView.ViewpointChanged += ViewpointChangedHandler;
+                MyMapView.GeoViewTapped += GeoViewTappedHandler;
 
                 // Open the GeoPackage
-                GeoPackage myGeoPackage = await GeoPackage.OpenAsync(geoPackagePath);
-                //LoadByFeatureCollectionLayer(myGeoPackage);
-                LoadByFeatureLayer(myGeoPackage);
+                this.MyGeoPackage = await GeoPackage.OpenAsync(geoPackagePath);
+                //LoadByFeatureCollectionLayer();
+                LoadByFeatureLayer();
                 //SetViewpointBasedOnOperationalLayers();
 
             }
