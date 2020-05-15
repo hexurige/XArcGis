@@ -53,6 +53,7 @@ namespace XArcGis
     {
         public FGBaseMapTiledLayer(TileInfo tileInfo, Envelope fullExtent) 
             : base(tileInfo, fullExtent) {
+            //this.NoDataTileBehavior = NoDataTileBehavior.Show;
         }
 
         //protected override Task<Uri> GetTileUriAsync(int level, int row, int column, CancellationToken cancellationToken)
