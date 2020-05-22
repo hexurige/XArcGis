@@ -13,6 +13,7 @@ using Xamarin.Forms;
 using Esri.ArcGISRuntime.Portal;
 using System.IO;
 using Esri.ArcGISRuntime.Xamarin.Forms;
+using System.Net;
 
 namespace XArcGis
 {
@@ -27,7 +28,8 @@ namespace XArcGis
         {
             InitializeComponent();
 
-            InitializeMap();
+            DownloadFull();
+            //InitializeMap();
         }
 
         internal static string GetOfflinePackagePath(string name)
@@ -157,10 +159,32 @@ namespace XArcGis
             
         }
 
+        private async void DownloadFull()
+        {
+            var fullPkgUrl = "http://localhost:57674/api/v1/GisExport/download?gisExportId=33";
+
+            using (WebClient wc = new WebClient())
+            {
+                wc.DownloadFileCompleted += DownloadFullCompleted;
+                wc.DownloadFileAsync(
+                    // Param1 = Link of file
+                    new System.Uri(fullPkgUrl),
+                    // Param2 = Path to save
+                    Path.Combine(App.GetOfflinePackageFolder(), "full.gpkg")
+                    
+                ) ;
+            }
+        }
+
+        void DownloadFullCompleted(object sender, AsyncCompletedEventArgs e)
+        {
+            InitializeMap();
+        }
+
         private async void InitializeMap()
         {
-
-            string geoPackagePath = GetOfflinePackagePath(@"Full_20200513043139.gpkg");
+            
+            string geoPackagePath = GetOfflinePackagePath(@"full.gpkg");
 
             try
             {

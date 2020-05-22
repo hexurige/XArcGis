@@ -1,5 +1,7 @@
 ﻿using System;
+using System.ComponentModel;
 using System.IO;
+using System.Net;
 using Xamarin.Forms;
 using Xamarin.Forms.Xaml;
 
@@ -15,7 +17,7 @@ namespace XArcGis
             {
                 if (aerialTileDb == null)
                 {
-                    var path = Path.Combine(GetOfflinePackageFolder(), "aerial.sqlite");
+                    var path = Path.Combine(GetOfflinePackageFolder(), "aerial.offline");
                     aerialTileDb = new AerialTileDatabase(path);
                 }
                 return aerialTileDb;
@@ -38,11 +40,31 @@ namespace XArcGis
             return sampleDataFolder;
         }
 
+        private async void DownloadAerial()
+        {
+            var fullPkgUrl = "http://localhost:57674/api/v1/GisExport/download?gisExportId=35";
+
+            using (WebClient wc = new WebClient())
+            {
+                wc.DownloadFileCompleted += DownloadFullCompleted;
+                wc.DownloadFileAsync(
+                    // Param1 = Link of file
+                    new System.Uri(fullPkgUrl),
+                    // Param2 = Path to save
+                    Path.Combine(App.GetOfflinePackageFolder(), "aerial.offline")
+
+                );
+            }
+        }
+        void DownloadFullCompleted(object sender, AsyncCompletedEventArgs e)
+        {
+            MainPage = new MainPage();
+        }
+
         public App()
         {
             InitializeComponent();
-
-            MainPage = new MainPage();
+            DownloadAerial();
         }
 
         protected override void OnStart()
